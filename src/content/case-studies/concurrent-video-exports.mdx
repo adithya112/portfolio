@@ -1,0 +1,147 @@
+---
+slug: concurrent-video-exports
+title: Redesigning a memory-intensive video export system
+summary: Replacing synchronous, in-memory archive generation with asynchronous exports, bounded concurrency, streaming multipart uploads and durable job recovery.
+domain: Java concurrency
+technologies:
+  - Java
+  - CompletableFuture
+  - ExecutorService
+  - Amazon S3
+  - SSE
+impact: Large exports with controlled memory use, failure recovery and reconnect-safe status tracking.
+published: true
+featuredOrder: 3
+updatedAt: "2026-11-01"
+---
+
+## TL;DR / Impact
+
+I redesigned a synchronous video exporter that downloaded all selected videos into the Java application’s memory before generating and returning a ZIP. Larger archives caused memory pressure and export failures. The replacement uses asynchronous background processing, bounded concurrency and multipart uploads to S3, allowing large exports without retaining the entire archive in application memory.
+
+## Context and requirements
+
+A client requests a ZIP archive of selected video objects. Smaller exports worked with the original synchronous implementation, but holding all selected videos in application memory made larger exports unreliable. The redesign needed to control resource usage, release the request promptly and give clients a durable way to follow progress and recover from disconnected notifications.
+
+## Before architecture
+
+<ArchitectureDiagram variant="export-before" />
+
+The request remained open while the application downloaded every selected video into memory, generated the ZIP and returned the archive directly to the client. Export size therefore determined both the memory held by the application and the amount of work tied to the request lifecycle.
+
+## Failure mode or bottleneck
+
+The original pipeline retained all selected videos in the Java application’s memory. As the selected data grew, that retention created memory pressure and caused export failures. Moving the same unbounded work to a background thread would release the HTTP request but preserve the resource problem; the redesign also needed bounded downloads and bounded upload work.
+
+Archive mutation introduces a different constraint. A shared ZIP writer is a stateful output owner. Allowing unrelated completion callbacks to write entries concurrently risks interleaving entry state or bytes. The design must distinguish parallel fetching from serialized writing.
+
+## Constraints
+
+- **Responsiveness:** return an export identifier without holding the initial request open until completion.
+- **Resource bounds:** limit in-flight downloads and pending upload parts.
+- **Archive correctness:** write ZIP entries through one owner in a deliberate order.
+- **Completion ordering:** finalize the upload before marking the archive ready.
+- **Client communication:** notify readiness without treating a transient browser connection as the source of job state.
+
+## Options and tradeoffs
+
+A wholly sequential pipeline is straightforward but cannot overlap independent I/O waits. Unbounded parallel fetching offers concurrency without a resource budget. Neither extreme is necessary: the implemented design uses bounded downloads and distinct execution resources for metadata and object I/O.
+
+A single ZIP writer makes the archive boundary explicit. It may wait for the next entry while another download has already completed; that is a correctness and resource-management tradeoff rather than a reason to permit concurrent entry writes.
+
+Dedicated executors give the workflow control over where blocking tasks run. Executor sizing still needs to account for connection capacity, I/O latency and other limits; thread count is not a throughput guarantee. The [CompletableFuture API documentation](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/CompletableFuture.html) distinguishes explicit executors from default async execution policies.
+
+## After architecture
+
+<ArchitectureDiagram variant="export-after" />
+
+The export pipeline:
+
+```text
+Export request
+  -> validate identifiers and persist QUEUED
+  -> return HTTP 202 + export identifier
+  -> background worker
+  -> concurrent metadata requests on a dedicated executor
+  -> bounded downloads on a separate executor
+  -> single ZIP writer
+  -> multipart upload with bounded pending parts
+  -> finalize upload, then persist READY
+  -> notify via SSE
+  -> client requests a presigned download URL
+
+Reconnect -> export-status API -> persisted job state
+```
+
+## Implementation
+
+### Explicit concurrency boundaries
+
+Metadata and downloads use different custom executors. That makes their execution resources explicit instead of sending blocking work indiscriminately to a shared default pool. `CompletableFuture` composes the stages; it does not by itself limit how many tasks are created.
+
+A bounded in-flight window limits submitted download work. The coordinator consumes downloaded objects through the single archive writer, while a separate bound limits pending upload parts.
+
+<details>
+<summary>Illustrative example: bounded work and a single ZIP writer</summary>
+
+```java
+// Illustrative Java pseudocode; helper types represent pipeline stages.
+for (List<VideoId> window : boundedWindows(videoIds, windowSize)) {
+    List<CompletableFuture<DownloadedObject>> pending = new ArrayList<>();
+    for (VideoId id : window) {
+        pending.add(
+            CompletableFuture.supplyAsync(() -> readMetadata(id), metadataExecutor)
+                .thenCompose(meta -> CompletableFuture.supplyAsync(
+                    () -> download(meta), downloadExecutor))
+        );
+    }
+
+    // Only this coordinator touches archive entry state.
+    for (CompletableFuture<DownloadedObject> task : pending) {
+        try (DownloadedObject object = task.join()) {
+            archive.writeEntry(object);
+        }
+    }
+}
+archive.finish();
+```
+
+This example uses fixed windows to show bounded submission and a single writer. Exceptional completion needs separate handling: if one future fails, the remaining tasks keep running unless they are explicitly managed.
+
+</details>
+
+### ZIP bytes and multipart completion
+
+Downloads can finish in a different order from the order in which entries are written. That does not require multiple threads to mutate the ZIP writer. Once the archive’s output is divided into multipart-upload parts, upload completion can also occur out of order; completion needs the intended part-number ordering and the returned part identifiers.
+
+S3 makes the completed object available after multipart completion; merely starting or uploading some parts is not enough. Its [multipart-upload documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html) describes assembly, independent part uploads and aborting incomplete uploads. The workflow transfers ZIP output through concurrent multipart uploads without retaining the whole archive in application memory. Upload finalization precedes READY persistence. ZIP finalization supplies the archive’s closing bytes before the upload represents a complete archive.
+
+### Notifications are not the durable state
+
+After a successful upload, the system persists READY and sends an SSE notification. The client then requests a presigned download URL. A separate export-status API returns the persisted job state after an SSE disconnection or browser reconnection, so readiness does not depend on receiving a particular event.
+
+## Failure handling
+
+### Retries and terminal failure
+
+Failed export operations are retried with exponential backoff, with up to three retries before the export is marked FAILED. The bounded retry budget provides a terminal job state rather than leaving a failed export indefinitely in progress.
+
+### Scheduled cleanup
+
+A scheduled cleanup job removes unfinished multipart uploads and temporary files. Completed archives are removed after a 24-hour retention period. Cleanup handles resources whose lifetimes extend beyond an individual request or failed completion callback.
+
+### Durable completion and reconnect recovery
+
+READY is persisted after multipart completion. SSE communicates the change promptly, while the export-status API lets a reconnecting client retrieve the durable state. An interrupted notification connection therefore does not require the client to start another export merely to find out whether the original job completed.
+
+## Results
+
+The redesign addressed the original workflow’s memory limitations by controlling in-flight work and transferring ZIP output to S3 without buffering the complete archive. Requests return promptly with a persistent identifier, and background processing runs independently of the request-response lifecycle.
+
+Bounded concurrency controls resource use; retries and FAILED status provide an explicit failure path; scheduled cleanup limits retained resources. SSE and the status API combine prompt notification with recovery after disconnection. Together, these changes improved reliability and the experience of exporting larger video collections.
+
+## What I learned / next iteration
+
+The engineering lesson is to place concurrency around independent I/O while keeping stateful output ownership explicit. “Asynchronous” and “bounded” are separate properties: a future-based pipeline can still submit too much work.
+
+The most important boundaries to exercise are ZIP finalization, multipart completion, READY persistence and notification delivery. Each represents a different kind of completion.

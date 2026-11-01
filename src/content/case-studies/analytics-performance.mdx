@@ -1,0 +1,143 @@
+---
+slug: analytics-performance
+title: Making analytics APIs responsive
+summary: Separating analytical workloads, improving query patterns, and moving repeated aggregation out of the request path.
+domain: Performance engineering
+technologies:
+  - PostgreSQL
+  - TimescaleDB
+  - Node.js
+  - dbt
+impact: Faster analytics through workload isolation and precomputed results.
+published: true
+featuredOrder: 1
+updatedAt: "2026-11-01"
+---
+
+## TL;DR / Impact
+
+I improved a SaaS analytics backend by addressing inefficient queries, separating analytical work from the application workload, and introducing precomputed data marts. Analytics API response times improved, and existing records were migrated to the revised architecture.
+
+## Context and requirements
+
+Advertising analytics combined ingestion of time-oriented data with application requests against a shared PostgreSQL workload. Users needed useful analytics without waiting for expensive aggregation on every request. The system also needed a path for existing data to move into the revised model without treating historical records as disposable.
+
+My contribution covered query optimization, the analytics architecture and the migration.
+
+## Before architecture
+
+<ArchitectureDiagram variant="analytics-before" />
+
+The important boundary was the shared workload, rather than a particular machine. Ingestion and interactive access both placed demands on the data layer, while the Node.js request path also performed expensive aggregation.
+
+## Failure mode or bottleneck
+
+Several mechanisms compounded each other. Missing indexes made relevant rows expensive to locate. N+1 query patterns repeated database round trips for related entities. Aggregating large result sets in the application added request-time CPU and data transfer costs. Workload sharing meant that optimizing one query did not, on its own, isolate interactive requests from ingestion pressure.
+
+These mechanisms need separate explanations. An index reduces the work needed to find rows; batching avoids repeated queries; a prepared mart avoids recomputing a recurring answer. They are complementary changes, not interchangeable descriptions of the same optimization.
+
+## Constraints
+
+- **Latency:** move repeated work away from an interactive request where practical.
+- **Correctness:** preserve the meaning of aggregate metrics while changing where they are computed.
+- **Freshness:** recognize that a prepared result reflects a completed transformation, not every just-arrived record.
+- **Migration:** account for existing records as well as ongoing ingestion.
+- **Operations:** keep the data model and query behavior understandable to the engineers maintaining them.
+
+## Options and tradeoffs
+
+The relevant storage comparison is TimescaleDB versus ClickHouse. The delivered approach used TimescaleDB hypertables and dbt models, fitting the time-oriented data and existing PostgreSQL context.
+
+TimescaleDB offered a PostgreSQL-oriented path for time-based analytical data. Hypertables organize time-series records into chunks while retaining a SQL interface. That fit the time-oriented workload and existing PostgreSQL context. It does not mean ordinary PostgreSQL cannot handle analytics. See the [Timescale hypertable documentation](https://www.tigerdata.com/docs/reference/timescaledb/hypertables) for the storage abstraction.
+
+ClickHouse is a [column-oriented SQL database for analytical processing](https://github.com/ClickHouse/clickhouse-docs/blob/main/docs/intro.md). Its storage model is relevant to workloads that scan many records but only a subset of columns; it would also introduce a different storage and operational model to evaluate. A database change alone would not remove an N+1 query pattern or make an unsuitable aggregate correct. The useful comparison includes query shape, ingestion, operational familiarity and migration effort, rather than assuming a universal winner.
+
+Precomputing recurring aggregates trades freshness and transformation maintenance for less repeated work on the request path. Indexes also require storage and write maintenance. Workload separation introduces another operational boundary; its benefit has to justify that cost.
+
+## After architecture
+
+<ArchitectureDiagram variant="analytics-after" />
+
+The application workload and analytical workload were separated. Within analytics, TimescaleDB hypertables, indexing and dbt models addressed different parts of the problem. APIs could read prepared marts instead of repeatedly scanning and aggregating the same underlying data.
+
+## Implementation
+
+### Query shape before database choice
+
+An N+1 pattern can be present even when each individual query looks inexpensive. A request first fetches a list, then issues another query for each item. The following illustrative example compares that pattern with a set-based query.
+
+<details>
+<summary>Illustrative example: N+1 queries and a set-based alternative</summary>
+
+```javascript
+// Illustrative pseudocode: one query, followed by one per account.
+const accounts = await db.query("SELECT id FROM demo_accounts");
+for (const account of accounts.rows) {
+  const totals = await db.query("SELECT sum(amount) FROM demo_events WHERE account_id = $1", [
+    account.id,
+  ]);
+  consume(account.id, totals.rows[0]);
+}
+```
+
+```sql
+-- Illustrative SQL using example tables.
+-- The same account-level result is requested as one set-based query.
+SELECT a.id, COALESCE(SUM(e.amount), 0) AS total
+FROM demo_accounts AS a
+LEFT JOIN demo_events AS e ON e.account_id = a.id
+GROUP BY a.id;
+```
+
+The join preserves accounts with no matching events. In a real workload, authorization, time filters and the intended aggregation grain must be preserved too. Batching does not justify dropping those constraints.
+
+</details>
+
+### Indexing, hypertables and prepared marts
+
+Index selection follows actual predicates and query plans, rather than adding indexes indiscriminately. A useful diagnostic is to inspect the planner’s chosen access path and then validate it against representative data. PostgreSQL documents how [EXPLAIN exposes scan and join choices](https://www.postgresql.org/docs/current/using-explain.html).
+
+The revised architecture used time-oriented hypertables for analytical records and dbt models for repeated transformations. In this design, a mart is a prepared result with a defined grain. It is not synonymous with a cache and does not eliminate the need to understand the underlying query. dbt’s [materialization documentation](https://docs.getdbt.com/docs/build/materializations) distinguishes stored tables, views and other materialization choices; a view alone would not establish that work had moved out of request time.
+
+### Staging validation with production data
+
+Before moving the production workload, I deployed the TimescaleDB architecture in an isolated staging environment using production data. We validated the migrated datasets at several levels:
+
+- **Record-count reconciliation:** compare dataset counts across the existing and migrated data.
+- **Advertising metric comparisons:** check that business-facing analytics remained consistent.
+- **dbt model tests:** validate the transformed models.
+- **API-result comparisons:** compare the results returned through the application.
+
+AI-assisted SQL generation accelerated the creation of reconciliation queries. We ran the new architecture internally for several days and confirmed the results before planning the production switch.
+
+### Controlled production cutover
+
+We temporarily paused Airbyte synchronization to prevent new ingestion during the migration and database switch. This established a consistent data boundary for moving the production analytical data.
+
+After migrating the data, we switched the application’s database connection to TimescaleDB. PostgreSQL compatibility reduced the integration changes needed in the application. We retained the previous PostgreSQL database temporarily as a fallback.
+
+The approach combined validation against production data with an explicit ingestion pause and a controlled connection switch, reducing the number of changes happening simultaneously during cutover.
+
+## Failure handling
+
+### dbt retries and failure visibility
+
+Ongoing dbt executions used automatic retries. Failed runs appeared in an internal administration dashboard with associated logs, giving developers a place to investigate and resolve transformation failures.
+
+### Freshness and serving behavior
+
+Precomputation moves part of the reliability problem into the transformation pipeline. Data arrival, model completion and API availability are separate stages: an available endpoint can still be serving data that has not caught up with ingestion.
+
+Freshness, late-arriving records and failed transformations need to be considered alongside query latency. A fast response is useful only when its aggregation grain and freshness match the caller’s expectations.
+
+The benefit of workload isolation is also bounded: a new analytical bottleneck can still arise inside the isolated workload. Query plans and transformation cost remain relevant after separation.
+
+## Results
+
+Analytics API responses improved after the combined query, storage and transformation changes. Existing analytical records were migrated into the modernized architecture after staging validation, reconciliation and API-result comparisons. The controlled cutover paused ingestion and retained the previous database temporarily as a fallback. Indexing, workload isolation and precomputation addressed different sources of request-time work, while retries and dashboard logs supported ongoing dbt reliability.
+
+## What I learned / next iteration
+
+The engineering lesson is to separate **finding data**, **moving data** and **recomputing answers** when discussing performance. A storage decision can support the workload, but it cannot substitute for a sound query and aggregation model.
+
+Query latency, transformation cost and data freshness are separate dimensions of analytics performance. Evaluating them together gives a clearer picture of the user experience than a database choice alone.

@@ -1,0 +1,150 @@
+---
+slug: reliable-background-processing
+title: Separating reliable background processing from API workloads
+summary: Isolating background workers with managed queues, atomic MongoDB job claims and an explicit recovery path for stale execution state.
+domain: Asynchronous systems
+technologies:
+  - Spring Boot
+  - MongoDB
+  - AWS SQS
+  - AWS Lambda
+  - Azure Queue
+  - Azure Functions
+impact: Independent execution, concurrency-safe job claiming and controlled failure recovery.
+published: true
+featuredOrder: 2
+updatedAt: "2026-11-01"
+---
+
+## TL;DR / Impact
+
+I moved background processing out of an embedded worker arrangement into queue-driven function execution. AWS SQS with Lambda and Azure Queue with Functions provided separate execution boundaries; retries, dead-letter queues and database-backed tracking supported failure recovery. Atomic MongoDB claims prevented concurrent workers from claiming the same pending job. This separated interactive requests from job execution and made consumer concurrency independently configurable.
+
+## Context and requirements
+
+The starting application used Spring Boot with an embedded RQueue worker pool. A small number of long-running workers could delay queued work, while job execution and API handling shared the application’s resources. Both timely API responses and reliable background completion mattered, but they did not need the same execution lifecycle.
+
+My contribution covered the queue-driven architecture and reliability mechanisms. The AWS implementation uses SQS and Lambda; the Azure implementation uses Queue Storage and Functions.
+
+## Before architecture
+
+<ArchitectureDiagram variant="queue-before" />
+
+The embedded arrangement was simple to deploy, but the API and workers occupied a combined execution boundary. A long job could hold a worker slot even when other queued work was ready to run.
+
+## Failure mode or bottleneck
+
+Two different issues must be distinguished. **Worker occupancy** delays other jobs when available execution slots are busy. **Resource contention** can affect APIs when workers and request handlers compete for CPU, heap, connections or another shared limit.
+
+A thread-count setting alone does not prove API contention. Increasing that number might improve occupancy while increasing pressure on a database or exhausting a connection pool. Moving execution outside the process changes the resource boundary rather than merely changing the number of threads inside it.
+
+Users experienced delayed background work; the architecture also coupled that workload’s resource needs to the API deployment.
+
+## Constraints
+
+- **Durable progress:** jobs need an identity and a persistent status beyond the lifetime of one invocation.
+- **Repeated delivery:** a retry or duplicate must not repeat a business effect incorrectly.
+- **Bounded execution:** scaling workers must respect downstream capacity.
+- **Failure isolation:** a repeatedly failing job needs an investigation path rather than endless immediate retries.
+- **Operations and cost:** external workers add deployment, debugging and provider-specific behavior to maintain.
+
+## Options and tradeoffs
+
+Keeping embedded workers preserves a simple deployment model but retains the combined resource boundary. A separate long-running worker service could also isolate execution, at the cost of operating that service.
+
+The delivered direction used managed queues and serverless functions. It allowed job execution and concurrency to be configured separately from API handling. That introduces tradeoffs: cold starts, invocation limits, externalized status, provider behavior and workload-dependent cost. A serverless consumer is not an unlimited worker pool.
+
+The appropriate limit is the one the downstream system can absorb, not merely the largest concurrency the function platform permits. Adding consumers may move the bottleneck to a database, integration API or account-level rate limit.
+
+## After architecture
+
+<ArchitectureDiagram variant="queue-after" />
+
+The application submits work to a managed queue, and functions execute it outside the API process. Persistent tracking provides a job-level view while queue delivery and function invocations represent attempts. A failed attempt is not necessarily a terminally failed job.
+
+The implementation combined retries and dead-letter handling with MongoDB job tracking and conditional atomic claims. On Azure Queue-triggered Functions, the platform’s poison-message handling is the related failure-isolation mechanism. Provider terms should not obscure the difference between the two implementations.
+
+## Implementation
+
+### Separate job identity from delivery identity
+
+A durable job identifier represents the intended business operation across repeated delivery attempts. A transport message identifier is not sufficient if the same operation can be submitted in more than one message. MongoDB records tracked jobs using unique identifiers and execution statuses, separating the job lifecycle from any one invocation.
+
+The job and its delivery attempts have different lifecycles:
+
+```text
+Business job: persistent identity + status
+    |
+    +-- delivery attempt -> retryable failure -> later attempt
+    |
+    +-- delivery attempt -> successful effect -> completed job
+
+Repeated delivery != a new business operation
+```
+
+### Atomic job claiming in MongoDB
+
+Workers used MongoDB’s `findOneAndUpdate()` to claim a job only when its identifier and pending status matched. Updating the execution status as part of that atomic operation meant that only one competing worker could successfully claim the same pending record. The next worker would find that the record no longer matched the pending-state condition.
+
+<details>
+<summary>Illustrative example: conditionally claiming a pending job</summary>
+
+```javascript
+// Illustrative pseudocode with example field and state names.
+const claimedJob = await jobs.findOneAndUpdate(
+  { jobId: message.jobId, status: "PENDING" },
+  { $set: { status: "RUNNING" } },
+  { returnDocument: "after" },
+);
+
+if (claimedJob) {
+  await executeJob(claimedJob);
+}
+```
+
+MongoDB’s [single-document atomicity](https://www.mongodb.com/docs/manual/core/write-operations-atomicity/) makes the state condition and update one claim operation. This avoids a separate read-then-write race between workers.
+
+The boundary is the job record. An external business effect and a later status update still have separate failure points; atomic claiming alone does not make them a single transaction or establish exactly-once effects. Replaying a job therefore requires considering its existing status and any effects of an earlier attempt.
+
+</details>
+
+### Visibility and acknowledgment
+
+With SQS, receiving a message hides it temporarily rather than deleting it. If processing does not complete and the message is not deleted before visibility expires, it can be received again. Even within that interval, at-least-once delivery means duplicates remain possible. See the [SQS visibility-timeout documentation](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html).
+
+AWS and Azure expose different runtime controls. The [Azure Queue trigger documentation](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-storage-queue-trigger) describes its trigger and poison-message behavior.
+
+## Failure handling
+
+### Retries and failure investigation
+
+Failed executions used automatic retries and dead-letter queues. Developers investigated persistent failures through AWS SQS and application logs, then corrected the underlying issue before replaying affected work.
+
+### Recovering stale execution state
+
+Queue delivery and database state could diverge. A message redriven from the DLQ could reach a worker while its MongoDB record still held an execution status that made it ineligible for the conditional claim. Redriving the message alone would not make the job claimable.
+
+We addressed this with an internal admin dashboard that let developers manually reset the job status. Recovery followed an explicit order:
+
+1. Investigate the failed job using AWS SQS and application logs.
+2. Correct the underlying problem.
+3. Reset the stale job status through the internal admin dashboard.
+4. Use AWS SQS DLQ redrive to reprocess the message.
+
+Resetting the database state before redrive aligned the job record with the worker’s claim condition. This kept recovery deliberate and visible to the developers handling the failure.
+
+### Delivery and job-state boundaries
+
+A dead-letter queue preserves a recovery path, while the database record determines whether a worker can claim the job. Both must be considered during replay. The AWS redrive workflow described here applies to the SQS implementation; the Azure path uses its own queue-trigger behavior.
+
+## Results
+
+Background execution was separated from the API process, and consumer concurrency could be configured independently. Atomic MongoDB job claims prevented concurrent processing of the same pending job. Retries, dead-letter queues and logs made failures visible, while the admin status-reset workflow enabled controlled recovery of stale jobs before SQS redrive.
+
+Separate execution still leaves shared downstream dependencies. A database or external API can remain a bottleneck even after the workers move out of the application process.
+
+## What I learned / next iteration
+
+The engineering lesson is to separate **delivery attempts**, **business operations** and **resource capacity**. A queue buffers work, but does not establish exactly-once effects or unlimited throughput.
+
+The stale-state issue showed why queue recovery and application-state recovery must be designed together. Making a message available again does not make its corresponding database record eligible for execution; the claim condition must be satisfied too.

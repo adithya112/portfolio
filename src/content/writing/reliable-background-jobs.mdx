@@ -1,0 +1,110 @@
+---
+slug: reliable-background-jobs
+title: Reliable Background Processing with Queues, Retries, DLQs, and Idempotency
+description: Treat delivery, job ownership and business effects as separate boundaries when designing retryable background work and recovery.
+publishedAt: "2026-11-01"
+tags:
+  - Queues
+  - Reliability
+  - Idempotency
+published: true
+---
+
+## A message is an attempt, not the operation
+
+Imagine a service that accepts a request to generate a document and notifies another system when it is ready. A queue lets the request return before that work finishes. The queue does not, however, define whether repeating the work is safe, whether a worker still owns it, or what a user should see after a failure.
+
+This guide develops a hypothetical job processor by separating three identities: the business operation, its durable job record and each delivery attempt. The useful question is not simply whether a message was processed, but whether the intended effect completed and how the system can determine that after a failure.
+
+## Give the job a durable identity
+
+A transport message identifier describes a delivery object. An operation identifier describes the action the application intends to perform. If the producer can submit the same logical action twice, those messages may have different transport identifiers while still referring to one operation.
+
+Choose the deduplication boundary according to the business semantics. A client-provided operation key may work for a create request; a composite key may identify a particular scheduled action. Reusing a key for different payloads needs an explicit policy, because silently treating different commands as the same job loses intent.
+
+Persist enough state to answer operational questions: which operation is this, what payload or version does it refer to, is it eligible to run, and what happened on the previous attempt? Avoid creating separate records for a retry unless that record represents an attempt within the original job lifecycle.
+
+## Treat visibility as a delivery mechanism
+
+Receiving a message usually makes it unavailable to other consumers for a period. Successful processing then needs the appropriate acknowledgment or deletion behavior. If the worker disappears before completion, the message can become available again.
+
+For SQS, the [visibility-timeout documentation](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html) describes this interval and the possibility of repeated delivery. A visibility timeout is not an exactly-once guarantee or a database lock on the business operation.
+
+Too short an interval can allow another attempt while the first is still active. Too long an interval delays recovery from a failed worker. Long-running work may need visibility extension or a different job decomposition. The appropriate setting depends on observed execution behavior and the consumer integration, rather than a single default copied across providers.
+
+## Claim execution atomically
+
+Checking a job status and then updating it in separate operations creates a race: two workers can both read the eligible state before either changes it. A conditional atomic update combines eligibility and ownership transfer at one boundary.
+
+For example, the following uses illustrative field and state names in a MongoDB-style claim:
+
+```javascript
+const claimed = await jobs.findOneAndUpdate(
+  { jobId: message.jobId, status: "PENDING" },
+  { $set: { status: "RUNNING" } },
+  { returnDocument: "after" },
+);
+
+if (claimed) {
+  await execute(claimed);
+}
+```
+
+The filter includes the state being changed. Once one worker changes it, another worker targeting the same record no longer matches the pending condition. MongoDB documents [atomic single-document updates and expected-value filters](https://www.mongodb.com/docs/manual/core/write-operations-atomicity/).
+
+This pattern needs a policy for an unavailable claim. A running job, a completed job and a missing job are different situations. A consumer should not automatically treat every failed claim as successful business completion. It also needs a way to recover from a worker that disappears while holding execution state.
+
+## Separate ownership from idempotent effects
+
+An atomic job claim prevents a particular claim race. It does not automatically make a remote effect atomic with a local completion write. Consider this failure window:
+
+```text
+claim job
+  -> remote system applies the effect
+  -> worker crashes before marking the job complete
+  -> delivery is retried
+```
+
+The retry cannot decide safely from a missing completion flag alone whether the effect happened. A downstream idempotency key, an effect ledger or a reconciliation query can help, depending on the destination’s capabilities. These are design choices, not interchangeable queue settings.
+
+If the effect and completion record live in the same transactional store, a transaction may provide a useful boundary. If they cross systems, the design needs to address uncertain outcomes directly. A local database transaction around a network call does not make the remote system part of that transaction.
+
+An outbox can coordinate a database change with a durable intent to send a message. It still leaves delivery and consumer deduplication to solve. Similarly, FIFO ordering and broker deduplication can help with transport behavior while leaving application side effects with their own failure windows.
+
+## Retry within a capacity budget
+
+Retries are additional load on a system that may already be failing. Classify errors before deciding whether another attempt is useful. A temporary dependency failure may recover; malformed input usually needs correction rather than repeated execution.
+
+Use a bounded attempt policy and delays that avoid immediate synchronized retry storms. Exponential backoff can spread attempts over time, while jitter reduces the chance that many workers retry together. A retry policy also needs a terminal destination or status so failure does not become indefinite work.
+
+The total retry budget matters across layers. A client, worker, SDK and downstream service may each retry. Multiplying those policies can create more calls than any one layer’s configuration suggests. Include rate limits, connection capacity and per-operation deadlines in the budget.
+
+Increasing consumer concurrency is not always recovery. It can shorten a queue while worsening errors at the dependency that caused the backlog. Queue depth and processing rate need to be interpreted alongside downstream saturation and failure reasons.
+
+## Use a DLQ as an investigation boundary
+
+A dead-letter queue isolates work that could not be processed under the delivery policy. It preserves evidence and a place to intervene; it does not repair the underlying operation.
+
+SQS uses a redrive policy to control movement to a DLQ after repeated receives. AWS’s [DLQ guide](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html) explains the role of receive limits, inspection and redrive. The threshold should allow useful retries without hiding persistent failure for too long.
+
+An investigation should connect the message to its job record, logs and possible effects. Before redrive, identify whether the fault was transient, an invalid command, a dependency problem or an application-state mismatch. Correcting code without considering an already-applied effect can make replay unsafe.
+
+## Recover application state as well as messages
+
+A message may become deliverable while its durable record remains in a state that a worker cannot claim. Replaying transport alone then repeats the failed claim instead of resuming useful work.
+
+A controlled manual workflow can inspect the job, correct the cause, restore an eligible state and redrive the message. Automatic recovery is also possible, but it needs a reliable way to distinguish abandoned work from a slow active owner. Time-based assumptions alone can permit overlapping attempts if the original worker is still running.
+
+A design that uses leases or ownership tokens must ensure stale owners cannot commit newer state incorrectly. The exact mechanism depends on the store and business effect. The important invariant is that recovery should restore valid ownership and preserve the operation’s identity, rather than merely change a status until the worker accepts it.
+
+## Track the boundaries that users depend on
+
+Useful operational signals include the age of outstanding work, repeated failures, DLQ growth, time spent in execution states and errors by dependency. Counts alone are insufficient: a small queue can still contain an old job that a user is waiting for.
+
+A status API should expose durable job progress without requiring a notification connection to remain alive. Notifications can improve responsiveness, while persisted state supports reconnects, investigation and recovery. Keep an attempt’s transient failure separate from a job’s terminal outcome.
+
+## Review the failure windows
+
+Walk through the processor with failures after admission, claim, effect, completion and acknowledgment. For each boundary, ask what the next worker will observe, whether repeating the effect is safe and who restores progress when normal retries cannot.
+
+Reliable background processing combines delivery mechanics, concurrency-safe ownership and a deliberate recovery policy. A queue is valuable infrastructure, but the application still owns the meaning of success.

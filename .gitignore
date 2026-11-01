@@ -1,0 +1,23 @@
+node_modules/
+.next/
+out/
+coverage/
+playwright-report/
+test-results/
+.env*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+
+# Local development and agent notes
+/AGENTS.md
+/IMPLEMENTATION_STATUS.md
+/docs/CONTENT_REVIEW.md
+/docs/DEVELOPMENT.md
+/docs/IMPLEMENTATION_SPEC.md
+
+# Local audit reports
+.lighthouseci/
+
+# Local Vercel project metadata
+.vercel/

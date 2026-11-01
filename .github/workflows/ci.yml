@@ -1,0 +1,51 @@
+name: Portfolio quality
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Reserved test origin; this workflow never deploys an artifact.
+      NEXT_PUBLIC_SITE_URL: https://portfolio.example
+      VERCEL_ENV: preview
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm audit --omit=dev
+      - run: npm run test:e2e
+      - name: Verify production indexing with the reserved test origin
+        run: npm run test:e2e -- tests/e2e/quality.spec.ts --grep "metadata|robots"
+        env:
+          VERCEL_ENV: production
+          PLAYWRIGHT_OUTPUT_DIR: test-results/production-indexing
+      - run: npm run audit:bundle
+      - run: npm run audit:lighthouse
+      - name: Upload test and audit evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: quality-evidence
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

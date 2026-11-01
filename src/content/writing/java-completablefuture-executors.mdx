@@ -1,0 +1,133 @@
+---
+slug: java-completablefuture-executors
+title: "CompletableFuture and ExecutorService: Choosing Concurrency Boundaries"
+description: Separate dependency composition from execution policy, then bound admission, resource ownership and failure handling in a Java pipeline.
+publishedAt: "2026-11-01"
+tags:
+  - Java
+  - Concurrency
+  - Resource management
+published: true
+---
+
+## Composition is not a resource policy
+
+Consider a service that reads object metadata, downloads content and builds a report. The steps have dependencies, but they also compete for threads, connections, memory and output ownership. A useful design answers two separate questions: **what happens after what**, and **how much work may run or wait at once**.
+
+`CompletableFuture` describes dependencies and completion. An executor decides where submitted work runs. Neither choice, by itself, establishes an end-to-end resource budget. This guide uses an illustrative report pipeline to make those boundaries explicit.
+
+## Separate blocking I/O from CPU work
+
+A blocking network call occupies a thread while waiting for another system. A CPU-heavy transformation needs processor time. Mixing them in one small pool can let waiting I/O delay work that is otherwise ready to compute; expanding the pool indiscriminately can oversubscribe the CPU or overwhelm a dependency.
+
+Classify stages by their actual behavior, not their method names. An asynchronous wrapper around a synchronous HTTP client still performs blocking I/O. Conversely, handing an already asynchronous client operation to another pool may add scheduling without removing blocking.
+
+Useful boundaries include:
+
+- **Blocking I/O:** account for connection limits, latency and the remote service’s capacity.
+- **CPU work:** account for available processors and other work in the process.
+- **Mutable output:** give a stateful writer a deliberate owner, even when its inputs arrive concurrently.
+
+Separate pools are useful when they express different capacity or isolation requirements. One pool per tiny method makes ownership and tuning harder without necessarily improving isolation.
+
+## Make execution placement explicit
+
+An executor can be supplied when starting a future or adding an asynchronous stage. In the example below, client and transformation functions are illustrative application helpers:
+
+```java
+CompletableFuture<Report> report = CompletableFuture
+    .supplyAsync(() -> client.readMetadata(reportId), metadataExecutor)
+    .thenCompose(metadata -> CompletableFuture.supplyAsync(
+        () -> client.download(metadata), downloadExecutor))
+    .thenApplyAsync(bytes -> transform(bytes), cpuExecutor);
+```
+
+The dependency structure says metadata precedes a download, and a download precedes transformation. The executor arguments express placement. Keeping those decisions visible makes it easier to reason about blocking calls and capacity.
+
+The [CompletableFuture execution policies](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/CompletableFuture.html) distinguish default asynchronous execution from explicitly supplied executors. Non-async continuations can execute on a completion-related thread; a callback name alone is not a dedicated-thread boundary. Expensive work deserves a deliberate execution policy.
+
+## Use thenCompose for dependent asynchronous work
+
+Use `thenApply` when a stage transforms a value into another value. Use `thenCompose` when the transformation returns another completion stage and the downstream result should wait for that stage.
+
+```java
+// Illustrative types: readMetadataAsync and downloadAsync return futures.
+CompletableFuture<CompletableFuture<Blob>> nested =
+    readMetadataAsync(id).thenApply(meta -> downloadAsync(meta));
+
+CompletableFuture<Blob> composed =
+    readMetadataAsync(id).thenCompose(meta -> downloadAsync(meta));
+```
+
+The nested future can complete when the inner future has merely been created. The composed future represents the inner operation’s completion. Flattening this dependency avoids treating the existence of a future as the availability of its result.
+
+Composition does not submit fewer jobs. Building a composed chain for every item in a large collection can still admit all of them at once. The API contracts for [thenApply and thenCompose](<https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/CompletableFuture.html#thenCompose(java.util.function.Function)>) describe the distinction in terms of returned values and stages.
+
+## Size the pool and the waiting room
+
+A worker limit controls active execution, while an executor queue controls waiting submissions. An application may therefore have a small active pool and a large amount of retained work. Queued closures can retain request data, buffers or references to other objects.
+
+A bounded queue makes overload visible. This illustrative configuration uses application-selected parameters rather than universal sizing constants:
+
+```java
+ExecutorService downloadExecutor = new ThreadPoolExecutor(
+    workerCount,
+    workerCount,
+    0L,
+    TimeUnit.MILLISECONDS,
+    new ArrayBlockingQueue<>(queueCapacity),
+    new ThreadPoolExecutor.AbortPolicy()
+);
+```
+
+When the pool and queue cannot accept more work, rejection is part of the caller’s contract. Submission can fail before a future is returned, so the submitting code needs an overload policy as well as exceptional-completion handling.
+
+Possible policies include rejecting a request, delaying admission or applying backpressure to a producer. Running rejected work in the caller may be suitable in some contexts, but it can also put blocking work back on a request or event-loop thread. Choose it intentionally.
+
+The [ThreadPoolExecutor guide](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html) explains how pool sizes, queue choice and rejection interact. Tune the complete configuration against the workload rather than copying a thread count from another service.
+
+## Bound admission across the pipeline
+
+A stage-local queue limit does not necessarily bound later results. Completed downloads can accumulate while a slower writer consumes them. An admission window should cover the lifetime of the work and retained result that it is meant to limit.
+
+One simple approach processes fixed windows. The helpers below represent a hypothetical report service:
+
+```java
+// Illustrative pseudocode: at most windowSize chains per window.
+for (List<Item> window : windows(items, windowSize)) {
+    List<CompletableFuture<Report>> pending = new ArrayList<>();
+    for (Item item : window) {
+        pending.add(buildReportAsync(item));
+    }
+    for (CompletableFuture<Report> task : pending) {
+        writer.accept(task.join());
+    }
+}
+```
+
+The writer has one owner. The window limits submitted chains and retained completed results, assuming each helper respects its own resource contract. It also introduces a tradeoff: an early slow result can delay consumption of later completed results, and the next window waits for the current one.
+
+A sliding window can replenish capacity as work completes. If completion-order processing is acceptable, it can reduce that waiting; if output order matters, it needs an additional ordering policy. A semaphore acquired inside already-submitted tasks only limits the guarded work. It does not prevent those waiting tasks from accumulating in the executor queue.
+
+## Define failure and cancellation behavior
+
+A failed stage normally prevents a dependent success transformation from running. Decide where an error should be observed and whether recovery should produce a valid fallback result or preserve the failure. Returning an empty report from every error handler can turn an operational failure into apparently successful but incomplete output.
+
+Two lifecycle details matter when coordinating a collection of futures:
+
+- A completion barrier does not cancel sibling operations or release their resources for you.
+- A timed-out or cancelled future does not establish that a blocking network operation has stopped.
+
+For a failed pipeline, stop admitting new work, account for already-started operations, close owned resources and preserve the failure in job state or the request result. Cancellation of a `CompletableFuture` is an exceptional-completion mechanism; resource cancellation still needs cooperation from the operation performing I/O. See its [cancellation and timeout contracts](<https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/CompletableFuture.html#cancel(boolean)>).
+
+## Own the executor lifecycle
+
+Application-scoped executors need an owner that starts and stops them with the application. Creating a new pool for every request can multiply threads and complicate shutdown. Sharing a pool is reasonable when its capacity policy fits the callers that use it.
+
+Shutdown also needs a budget. Stop new submissions, decide how long accepted work may finish, and handle tasks that cannot finish in that period. Resource-specific timeouts remain necessary for blocking calls. The [ExecutorService lifecycle contract](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/ExecutorService.html) distinguishes orderly shutdown from attempts to stop outstanding work.
+
+## A practical design review
+
+Before calling a pipeline controlled, trace one item from admission to final consumption. Identify its executor, connection usage, queued references, result buffers and cleanup owner at every stage. Then repeat that reasoning for overload and failure.
+
+A useful concurrency design makes the dependency graph readable, limits admitted work, respects downstream capacity and keeps output ownership explicit. Futures help express that design; they do not replace it.
