@@ -1,6 +1,6 @@
 # Adithya G S — Engineering Portfolio
 
-A personal portfolio focused on backend engineering, distributed systems, and production reliability. Includes engineering case studies, technical writing, and a downloadable resume.
+A personal portfolio for a Full Stack Engineer focused on backend architecture, distributed systems, and production reliability. Includes engineering case studies, technical writing, and a downloadable resume.
 
 Built with Next.js, TypeScript, Tailwind CSS, and MDX.
 

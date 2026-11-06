@@ -3,8 +3,8 @@ import { profile } from "@/data/profile";
 import { absoluteSiteUrl, getSiteSettings, type SiteSettings } from "./site";
 
 export const siteDescription =
-  "Backend software engineering across production SaaS, analytics performance, asynchronous processing, and Java concurrency.";
-export const siteTitle = `${profile.name ?? profile.brand} | ${profile.role}`;
+  "Full-stack engineering with Java and Spring Boot, backend architecture, distributed systems, database performance, and production delivery.";
+export const siteTitle = `${profile.name ?? profile.brand} | ${profile.role} | Java & Spring Boot`;
 export const socialImageAlt = `${profile.name ?? profile.brand} — ${profile.role}`;
 
 type PageMetadataInput = {

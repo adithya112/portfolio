@@ -15,7 +15,7 @@ export type PublicProfile = {
 export const profile: PublicProfile = {
   name: "Adithya G S",
   brand: "Engineering portfolio",
-  role: "Backend Software Engineer",
+  role: "Full Stack Engineer",
   location: "Bengaluru, India",
   email: "adithyaaadi563@gmail.com",
   github: "https://github.com/adithya112",

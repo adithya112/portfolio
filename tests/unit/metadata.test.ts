@@ -76,7 +76,7 @@ it("sitemaps include only public pages and real editorial modification dates", (
   expect(entries.map((entry) => entry.url)).not.toContain(`${origin}/resume.pdf`);
   expect(
     entries.find((entry) => entry.url === `${origin}/work/analytics-performance`)?.lastModified,
-  ).toBe("2026-11-01");
+  ).toBe("2026-11-06");
   expect(entries.find((entry) => entry.url === `${origin}/`)?.lastModified).toBeUndefined();
   profile.siteUrl = null;
   expect(sitemap()).toEqual([]);

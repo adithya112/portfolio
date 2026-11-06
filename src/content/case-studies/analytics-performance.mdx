@@ -1,6 +1,6 @@
 ---
 slug: analytics-performance
-title: Making analytics APIs responsive
+title: Scaling Analytical Workloads Without Slowing Transactional Systems
 summary: Separating analytical workloads, improving query patterns, and moving repeated aggregation out of the request path.
 domain: Performance engineering
 technologies:
@@ -8,10 +8,10 @@ technologies:
   - TimescaleDB
   - Node.js
   - dbt
-impact: Faster analytics through workload isolation and precomputed results.
+impact: API response times reduced from 12–40 seconds to under 2 seconds.
 published: true
 featuredOrder: 1
-updatedAt: "2026-11-01"
+updatedAt: "2026-11-06"
 ---
 
 ## TL;DR / Impact
@@ -132,7 +132,13 @@ Freshness, late-arriving records and failed transformations need to be considere
 
 The benefit of workload isolation is also bounded: a new analytical bottleneck can still arise inside the isolated workload. Query plans and transformation cost remain relevant after separation.
 
+### Earlier useful data
+
+I split advertising-data ingestion into prioritized, dependency-aware stages and coordinated incremental reporting transformations. Essential data became available while historical processing continued. Initial useful data availability improved from weeks to approximately 1–2 hours.
+
 ## Results
+
+More than 10 million records were migrated with validation. API response times decreased from 12–40 seconds to under 2 seconds after the combined improvements.
 
 Analytics API responses improved after the combined query, storage and transformation changes. Existing analytical records were migrated into the modernized architecture after staging validation, reconciliation and API-result comparisons. The controlled cutover paused ingestion and retained the previous database temporarily as a fallback. Indexing, workload isolation and precomputation addressed different sources of request-time work, while retries and dashboard logs supported ongoing dbt reliability.
 

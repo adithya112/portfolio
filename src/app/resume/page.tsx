@@ -14,7 +14,7 @@ import Link from "next/link";
 export const metadata: Metadata = createPageMetadata({
   title: "Resume",
   description:
-    "Backend software engineering experience, technical focus, and selected production contributions.",
+    "Full-stack engineering experience, technical focus, and selected production contributions.",
   path: "/resume",
 });
 export default function ResumePage() {
@@ -53,8 +53,33 @@ export default function ResumePage() {
         <SectionHeading id="resume-experience" eyebrow="Experience">
           Production SaaS engineering.
         </SectionHeading>
-        <p>{home.about}</p>
-        <p className="muted">{home.collaboration}</p>
+        <article className="resume-role" aria-labelledby="nighthack-role">
+          <header>
+            <h3 id="nighthack-role">Nighthack Labs</h3>
+            <p className="muted resume-role-dates">June 2024–Present</p>
+          </header>
+          <p className="resume-role-title">Current designation: Lead Software Engineer</p>
+          <p>
+            Hands-on backend and full-stack engineering, architectural decisions, production
+            troubleshooting, testing, code reviews, cloud delivery, and mentoring two engineers.
+          </p>
+          <p>
+            Built semantic retrieval using embeddings and PostgreSQL/pgvector similarity search,
+            grouping related content into themes and supplying representative context for LLM
+            analysis.
+          </p>
+        </article>
+        <article className="resume-role" aria-labelledby="incture-role">
+          <header>
+            <h3 id="incture-role">Incture Technologies</h3>
+            <p className="muted resume-role-dates">August 2023–May 2024</p>
+          </header>
+          <p className="resume-role-title">Associate Software Engineer</p>
+          <p>
+            Developed enterprise Java/Spring Boot REST APIs, persistence, validations, exception
+            handling, tests, and frontend integrations.
+          </p>
+        </article>
       </section>
       <section className="resume-section" aria-labelledby="resume-contributions">
         <SectionHeading id="resume-contributions" eyebrow="Selected contributions">

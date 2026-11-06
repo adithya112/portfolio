@@ -1,37 +1,65 @@
 export type SkillCategory = { title: string; technologies: readonly string[] };
-// Redis caching is owner-confirmed production experience in Appizap and Motivision.
-// Kafka is a technical skill; this list does not attribute it to production projects.
 export const skills: readonly SkillCategory[] = [
   {
     title: "Backend",
     technologies: [
-      "Java",
+      "Java 17/21",
       "Spring Boot",
       "Spring WebFlux",
       "Spring Security",
+      "Spring Data JPA",
+      "Hibernate",
       "Node.js",
       "REST APIs",
       "OAuth2 / JWT",
     ],
   },
+  { title: "Full Stack", technologies: ["TypeScript", "JavaScript", "React", "Next.js"] },
   {
-    title: "Databases & Caching",
-    technologies: ["PostgreSQL", "MongoDB", "TimescaleDB", "Redis", "Elasticsearch"],
+    title: "Databases & Search",
+    technologies: [
+      "PostgreSQL",
+      "TimescaleDB",
+      "MongoDB",
+      "Redis Caching",
+      "Elasticsearch",
+      "pgvector",
+    ],
   },
   {
     title: "Distributed Systems",
     technologies: [
       "Microservices",
-      "Redis Caching",
-      "AWS SQS",
-      "BullMQ",
-      "Apache Kafka",
       "Event-Driven Architecture",
-      "Java Concurrency",
+      "Asynchronous Processing",
+      "BullMQ",
+      "AWS SQS",
+      "Apache Kafka",
     ],
   },
   {
-    title: "Cloud & Delivery",
-    technologies: ["AWS", "AWS Lambda", "Amazon ECS", "Docker", "CI/CD"],
+    title: "Cloud & DevOps",
+    technologies: [
+      "AWS",
+      "AWS Lambda",
+      "S3",
+      "RDS",
+      "ECS exposure",
+      "Docker",
+      "Kubernetes application deployments",
+      "CI/CD",
+      "GitHub Actions",
+    ],
+  },
+  {
+    title: "Testing & Engineering",
+    technologies: [
+      "JUnit",
+      "Mockito",
+      "Integration Testing",
+      "System Design",
+      "Performance Optimization",
+      "Java Concurrency",
+    ],
   },
 ];

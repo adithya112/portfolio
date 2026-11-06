@@ -2,7 +2,7 @@
 export const home = {
   headline: { primary: "Engineering reliable systems", accent: "at scale." },
   description:
-    "I build and operate production SaaS backends, solve performance bottlenecks, and design asynchronous systems with reliability in mind. My work spans Java concurrency, distributed processing, analytics architecture, and cloud deployments.",
+    "I design, build, and operate production applications, with a strong focus on backend architecture, distributed systems, and performance optimization. My experience spans Java and Spring Boot, full-stack development, asynchronous processing, database engineering, and cloud deployments.",
   outcomes: [
     {
       title: "Faster analytics",
@@ -18,7 +18,7 @@ export const home = {
     },
   ],
   about:
-    "I’m a Bengaluru-based software engineer with 3+ years of experience building production SaaS applications. I take ownership from understanding a production bottleneck and evaluating tradeoffs to implementing, deploying, and supporting the result.",
+    "I’m a Bengaluru-based Full Stack Engineer with 3+ years of experience building production SaaS applications. I take ownership from understanding a production bottleneck and evaluating tradeoffs to implementing, deploying, and supporting the result.",
   collaboration:
-    "My focus is hands-on backend engineering. I also contribute across the stack, review code, and guide a two-engineer team.",
+    "Alongside hands-on full-stack engineering, I contribute to technical design, code reviews, and mentoring two engineers.",
 } as const;

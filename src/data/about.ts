@@ -2,11 +2,11 @@
 export const about = {
   heading: "Hands-on engineering. Thoughtful ownership.",
   experience:
-    "I’m a Bengaluru-based software engineer with 3+ years of experience building and operating production SaaS applications.",
+    "I’m a Bengaluru-based Full Stack Engineer with 3+ years of experience designing, developing, and maintaining production applications, with a strong focus on backend architecture, distributed systems, and performance optimization.",
   approach:
     "I enjoy following a problem from its first symptoms to a working production change: understanding a bottleneck, weighing tradeoffs, implementing a solution, and supporting it after deployment.",
   collaboration:
-    "My work is primarily backend engineering. I also contribute across the stack, review code, and guide a two-engineer team. I value clear implementation boundaries and explanations that help the next engineer maintain the system.",
+    "I build APIs, optimize databases, and deliver reliable asynchronous workflows using Java, Spring Boot, Node.js, React, and AWS. Alongside hands-on engineering, I contribute to technical design, code reviews, and mentoring two engineers. I value clear implementation boundaries and explanations that help the next engineer maintain the system.",
   interests: "Outside engineering, I enjoy trekking and fitness.",
   principles: [
     {

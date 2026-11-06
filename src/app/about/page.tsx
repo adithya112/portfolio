@@ -10,7 +10,7 @@ import { profile, publicContacts } from "@/data/profile";
 export const metadata: Metadata = createPageMetadata({
   title: "About",
   description:
-    "Backend engineering, production SaaS ownership, and a practical approach to performance and reliability.",
+    "Full-stack engineering, production application ownership, and a practical approach to performance and reliability.",
   path: "/about",
 });
 export default function AboutPage() {

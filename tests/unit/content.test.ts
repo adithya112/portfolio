@@ -45,7 +45,7 @@ it("loads all three complete studies in featured order with unique anchors", () 
     );
     expect(new Set(study.toc.map((entry) => entry.id)).size).toBe(study.toc.length);
     expect(study.body).toContain("<ArchitectureDiagram");
-    expect(study.body).not.toMatch(/Yirla|Appizap|Motivision|12–40|10M|20,000|pgBackRest/);
+    expect(study.body).not.toMatch(/Yirla|Appizap|Motivision|20,000|pgBackRest/);
   }
 });
 

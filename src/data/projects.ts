@@ -17,7 +17,7 @@ export const workHighlights: readonly WorkHighlight[] = [
     id: "analytics",
     slug: "analytics-performance",
     domain: "Performance engineering",
-    title: "Making analytics responsive",
+    title: "Scaling Analytical Workloads Without Slowing Transactional Systems",
     problem: "Expensive queries and request-time aggregation slowed analytics APIs.",
     contribution:
       "I optimized query patterns, separated analytics workloads, and moved repeated aggregation into precomputed data models.",
@@ -27,7 +27,7 @@ export const workHighlights: readonly WorkHighlight[] = [
     id: "background-processing",
     slug: "reliable-background-processing",
     domain: "Asynchronous systems",
-    title: "Giving background work its own boundaries",
+    title: "Decoupling Long-Running Workloads From API Services",
     problem: "Long-running jobs shared resources with the application’s API workload.",
     contribution:
       "I separated execution with managed queues, atomic MongoDB job claims, retries, and an admin recovery workflow for stale jobs.",
@@ -37,7 +37,7 @@ export const workHighlights: readonly WorkHighlight[] = [
     id: "exports",
     slug: "concurrent-video-exports",
     domain: "Java concurrency",
-    title: "Redesigning memory-intensive video exports",
+    title: "Designing Bounded Concurrency for Large Media Exports",
     problem:
       "Synchronous exports held all selected videos in application memory, causing memory pressure and failures for larger archives.",
     contribution:

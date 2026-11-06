@@ -463,7 +463,7 @@ h3 {
 }
 .skill-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 32px;
 }
 .skill-grid h3 {
@@ -966,4 +966,32 @@ h3 {
 .footer-contact:hover {
   color: var(--color-accent);
   background: var(--color-surface);
+}
+
+/* Keep employment dates, designation and contribution copy grouped by role. */
+.resume-role + .resume-role {
+  margin-top: 36px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border);
+}
+.resume-role header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+.resume-role h3 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.resume-role-dates {
+  font-size: 0.9rem;
+}
+.resume-role .resume-role-title {
+  margin-top: 8px;
+  margin-bottom: 20px;
+}
+.resume-role > p + p:not(.resume-role-title) {
+  margin-top: 12px;
 }
