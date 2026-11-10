@@ -3,7 +3,7 @@ export const skills: readonly SkillCategory[] = [
   {
     title: "Backend",
     technologies: [
-      "Java 17/21",
+      "Java",
       "Spring Boot",
       "Spring WebFlux",
       "Spring Security",
