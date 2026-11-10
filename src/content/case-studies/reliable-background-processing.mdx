@@ -13,12 +13,16 @@ technologies:
 impact: Independent execution, concurrency-safe job claiming and controlled failure recovery.
 published: true
 featuredOrder: 2
-updatedAt: "2026-11-06"
+updatedAt: "2026-11-10"
 ---
 
 ## TL;DR / Impact
 
 I moved background processing out of an embedded worker arrangement into queue-driven function execution. AWS SQS with Lambda and Azure Queue with Functions provided separate execution boundaries; retries, dead-letter queues and database-backed tracking supported failure recovery. Atomic MongoDB claims prevented concurrent workers from claiming the same pending job. This separated interactive requests from job execution and made consumer concurrency independently configurable.
+
+**Distinct asynchronous implementations.**
+
+This case study covers queued SaaS background workloads. Competitor-ad retrieval was a separate implementation: I moved blocking API work into provider-agnostic asynchronous workflows with durable dispatch, idempotency, backoff retries, and SSE-based progress updates. These are distinct systems; the MongoDB claim and SQS/Azure recovery details below describe the queued SaaS workloads, not a shared competitor-retrieval architecture.
 
 ## Context and requirements
 
@@ -138,6 +142,8 @@ Resetting the database state before redrive aligned the job record with the work
 A dead-letter queue preserves a recovery path, while the database record determines whether a worker can claim the job. Both must be considered during replay. The AWS redrive workflow described here applies to the SQS implementation; the Azure path uses its own queue-trigger behavior.
 
 ## Results
+
+Independently scalable SQS/Lambda workers reduced p95 background-job completion latency by approximately 50–60%. This outcome applies to the queued background workloads.
 
 Background execution was separated from the API process, and consumer concurrency could be configured independently. Atomic MongoDB job claims prevented concurrent processing of the same pending job. Retries, dead-letter queues and logs made failures visible, while the admin status-reset workflow enabled controlled recovery of stale jobs before SQS redrive.
 

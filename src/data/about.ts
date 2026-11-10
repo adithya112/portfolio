@@ -6,7 +6,7 @@ export const about = {
   approach:
     "I enjoy following a problem from its first symptoms to a working production change: understanding a bottleneck, weighing tradeoffs, implementing a solution, and supporting it after deployment.",
   collaboration:
-    "I build APIs, optimize databases, and deliver reliable asynchronous workflows using Java, Spring Boot, Node.js, React, and AWS. Alongside hands-on engineering, I contribute to technical design, code reviews, and mentoring two engineers. I value clear implementation boundaries and explanations that help the next engineer maintain the system.",
+    "I build APIs, optimize databases, and deliver reliable asynchronous workflows using Java, Spring Boot, Node.js, React, and AWS. My applied AI work includes semantic retrieval and LLM integrations. Alongside hands-on engineering, I contribute to technical design, code reviews, and mentoring two backend engineers. I value clear implementation boundaries and explanations that help the next engineer maintain the system.",
   interests: "Outside engineering, I enjoy trekking and fitness.",
   principles: [
     {

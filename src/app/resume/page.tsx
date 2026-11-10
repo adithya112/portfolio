@@ -58,15 +58,28 @@ export default function ResumePage() {
             <h3 id="nighthack-role">Nighthack Labs</h3>
             <p className="muted resume-role-dates">June 2024–Present</p>
           </header>
-          <p className="resume-role-title">Current designation: Lead Software Engineer</p>
+          <p className="resume-role-title">Current designation: Software Engineer L3</p>
           <p>
             Hands-on backend and full-stack engineering, architectural decisions, production
-            troubleshooting, testing, code reviews, cloud delivery, and mentoring two engineers.
+            troubleshooting, testing, code reviews, cloud delivery, and leading two backend
+            engineers through task allocation, PR reviews, deployment coordination, and mentoring.
           </p>
           <p>
             Built semantic retrieval using embeddings and PostgreSQL/pgvector similarity search,
             grouping related content into themes and supplying representative context for LLM
-            analysis.
+            analysis, reducing input volume and improving analysis speed.
+          </p>
+          <p>
+            Implemented OAuth2 connections across advertising, analytics, and CRM providers with
+            encrypted token storage and workspace-scoped access, supporting 100+ connected accounts.
+          </p>
+          <p>
+            Built multi-tenant SaaS services with secure integration tokens, usage metering, and
+            Lago/Stripe billing reconciliation.
+          </p>
+          <p>
+            Separately redesigned competitor-ad retrieval as provider-agnostic asynchronous
+            workflows with durable dispatch, idempotency, backoff retries, and SSE progress updates.
           </p>
         </article>
         <article className="resume-role" aria-labelledby="incture-role">

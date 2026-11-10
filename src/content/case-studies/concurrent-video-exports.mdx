@@ -12,7 +12,7 @@ technologies:
 impact: Large exports with controlled memory use, failure recovery and reconnect-safe status tracking.
 published: true
 featuredOrder: 3
-updatedAt: "2026-11-06"
+updatedAt: "2026-11-10"
 ---
 
 ## TL;DR / Impact
@@ -135,6 +135,8 @@ A scheduled cleanup job removes unfinished multipart uploads and temporary files
 READY is persisted after multipart completion. SSE communicates the change promptly, while the export-status API lets a reconnecting client retrieve the durable state. An interrupted notification connection therefore does not require the client to start another export merely to find out whether the original job completed.
 
 ## Results
+
+The redesigned export workflow supports approximately 100 videos per export and archives up to 15 GB through controlled concurrency, ZIP generation, multipart uploads, and completion notifications. This describes supported export scale, not an application-memory allocation or a throughput benchmark.
 
 The redesign addressed the original workflow’s memory limitations by controlling in-flight work and transferring ZIP output to S3 without buffering the complete archive. Requests return promptly with a persistent identifier, and background processing runs independently of the request-response lifecycle.
 

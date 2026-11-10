@@ -14,7 +14,7 @@ export const skills: readonly SkillCategory[] = [
       "OAuth2 / JWT",
     ],
   },
-  { title: "Full Stack", technologies: ["TypeScript", "JavaScript", "React", "Next.js"] },
+  { title: "Frontend", technologies: ["React", "Next.js", "TypeScript", "JavaScript"] },
   {
     title: "Databases & Search",
     technologies: [
@@ -57,9 +57,22 @@ export const skills: readonly SkillCategory[] = [
       "JUnit",
       "Mockito",
       "Integration Testing",
+      "Grafana",
+      "Prometheus",
+      "CloudWatch",
       "System Design",
       "Performance Optimization",
       "Java Concurrency",
+    ],
+  },
+  {
+    title: "Applied AI",
+    technologies: [
+      "Embeddings",
+      "Semantic Retrieval",
+      "Similarity Search",
+      "Clustering",
+      "LLM Integrations",
     ],
   },
 ];
